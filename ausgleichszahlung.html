@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Ausgleichszahlung & Nutzungsdauer</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; }
+.section { border: 1px solid #ccc; padding: 12px; margin-bottom: 16px; }
+table { border-collapse: collapse; }
+td, th { border: 1px solid #999; padding: 6px 10px; text-align: center; }
+input[type="number"] { width: 110px; }
+.result { border: 2px solid #333; padding: 12px; margin-top: 16px; background-color: #f7f7f7; }
+.amount { margin-top: 6px; }
+.bigbtn { font-size: 18px; padding: 14px 20px; cursor: pointer; }
+.box { border: 2px solid #333; padding: 10px; margin-top: 10px; background: #fff; }
+.pill { display:inline-block; padding: 4px 8px; border: 2px solid #333; background:#fff; }
+</style>
+</head>
+<body>
+
+<h2>Hauptverantwortliche (fest)</h2>
+<div class="section">
+Weißer Bus: Linda<br>
+Mercedes: Robin<br>
+Wohnmobil: Max
+</div>
+
+<h2>Geschätzte Autowerte</h2>
+<div class="section">
+Weißer Bus: <input type="number" id="bus" value="6000"> €<br><br>
+Mercedes: <input type="number" id="mercedes" value="6000"> €<br><br>
+Wohnmobil: <input type="number" id="wohnmobil" value="12000"> €
+</div>
+
+<h2>Feste Annahmen</h2>
+<div class="section">
+- Robin behält immer mindestens den Mercedes<br>
+- Linda behält immer mindestens den weißen Bus<br>
+- Max behält immer mindestens das Wohnmobil<br>
+- Robin und Max haben nie den weißen Bus<br>
+- Aus der Nutzung aussteigen bedeutet: der jeweilige 1/3-Anteil wird abgegeben und ausgeglichen
+</div>
+
+<h2>Nutzungsrechte</h2>
+<div class="section">
+<table>
+<tr>
+<th></th>
+<th>Weißer Bus</th>
+<th>Mercedes</th>
+<th>Wohnmobil</th>
+</tr>
+<tr>
+<td>Linda</td>
+<td><input type="checkbox" id="l_bus" checked disabled></td>
+<td><input type="checkbox" id="l_mercedes"></td>
+<td><input type="checkbox" id="l_wohnmobil"></td>
+</tr>
+<tr>
+<td>Robin</td>
+<td><input type="checkbox" id="r_bus" disabled></td>
+<td><input type="checkbox" id="r_mercedes" checked disabled></td>
+<td><input type="checkbox" id="r_wohnmobil"></td>
+</tr>
+<tr>
+<td>Max</td>
+<td><input type="checkbox" id="m_bus" disabled></td>
+<td><input type="checkbox" id="m_mercedes"></td>
+<td><input type="checkbox" id="m_wohnmobil" checked disabled></td>
+</tr>
+</table>
+</div>
+
+<button class="bigbtn" onclick="berechnen()">Ausgleichszahlung berechnen</button>
+
+<div id="ergebnis" class="result"></div>
+
+<script>
+function berechnen() {
+  const values = {
+    "Weißer Bus": Number(document.getElementById("bus").value || 0),
+    "Mercedes": Number(document.getElementById("mercedes").value || 0),
+    "Wohnmobil": Number(document.getElementById("wohnmobil").value || 0)
+  };
+
+  const personen = ["Linda", "Robin", "Max"];
+
+  // Checkbox-Helper
+  function checked(id) { return document.getElementById(id).checked; }
+
+  // Endzustand-Nutzer je Fahrzeug aus den Haken
+  // Bus: nur Linda (Robin/Max nie Bus) -> fest
+  const finalUsers = {
+    "Weißer Bus": ["Linda"],
+    "Mercedes": ["Robin"].concat(checked("l_mercedes") ? ["Linda"] : []).concat(checked("m_mercedes") ? ["Max"] : []),
+    "Wohnmobil": ["Max"].concat(checked("l_wohnmobil") ? ["Linda"] : []).concat(checked("r_wohnmobil") ? ["Robin"] : [])
+  };
+
+  // Ausgangspunkt: jeder hatte 1/3 an jedem Auto
+  const baseOwners = {
+    "Weißer Bus": ["Linda", "Robin", "Max"],
+    "Mercedes": ["Linda", "Robin", "Max"],
+    "Wohnmobil": ["Linda", "Robin", "Max"]
+  };
+
+  // Detailzahlungen
+  const detail = {};
+  function addPay(from, to, amount) {
+    const a = Number(amount || 0);
+    if (a <= 0) return;
+    const key = from + " → " + to;
+    detail[key] = (detail[key] || 0) + a;
+  }
+
+  const erklaerung = [];
+
+  // Einheitliche Ausgleichslogik pro Fahrzeug:
+  // Aussteiger (base - final) werden von verbleibenden Nutzern (final) ausgekauft.
+  // Jeder Aussteiger hat Anspruch auf Wert/3.
+  // Dieser Betrag wird gleichmäßig auf die verbleibenden Nutzer verteilt.
+  function handleVehicle(name) {
+    const v = values[name];
+    const owners = baseOwners[name];
+    const stay = finalUsers[name]; // verbleibende Nutzer
+    const leave = owners.filter(p => !stay.includes(p));
+
+    // Sicherheitscheck: mindestens 1 bleibt (bei deinen Annahmen immer true)
+    if (stay.length === 0) return;
+
+    const share = v / 3; // Wert eines 1/3-Anteils
+    const perStayerPerLeaver = share / stay.length;
+
+    if (leave.length === 0) {
+      erklaerung.push(name + ": niemand steigt aus, daher kein Ausgleich.");
+      return;
+    }
+
+    // Zahlungen: jeder verbleibende Nutzer zahlt an jeden Aussteiger perStayerPerLeaver
+    leave.forEach(leaver => {
+      stay.forEach(stayer => {
+        addPay(stayer, leaver, perStayerPerLeaver);
+      });
+    });
+
+    erklaerung.push(
+      name + ": Aussteiger: " + leave.join(", ") +
+      ". Verbleibend: " + stay.join(", ") +
+      ". Anteil je Aussteiger: " + share.toFixed(2) + " €. Aufgeteilt auf " + stay.length +
+      " verbleibende Nutzer = " + perStayerPerLeaver.toFixed(2) + " € je Zahlung."
+    );
+  }
+
+  handleVehicle("Weißer Bus");
+  handleVehicle("Mercedes");
+  handleVehicle("Wohnmobil");
+
+  // Nutzungsdauer (12 Monate gleichmäßig auf Endnutzer verteilt)
+  function monate(nutzer) { return nutzer.length ? (12 / nutzer.length) : 0; }
+
+  // Saldo berechnen (+ bekommt, - zahlt)
+  const saldo = { "Linda": 0, "Robin": 0, "Max": 0 };
+  for (const k in detail) {
+    const [from, to] = k.split(" → ");
+    const amt = detail[k];
+    saldo[from] -= amt;
+    saldo[to] += amt;
+  }
+
+  // Netto-Zahlungen aus Saldo bilden
+  const payer = [];
+  const receiver = [];
+  personen.forEach(p => {
+    const v = Number(saldo[p].toFixed(2));
+    if (v < 0) payer.push({ p, v: -v });
+    if (v > 0) receiver.push({ p, v });
+  });
+
+  const nettoZahlungen = [];
+  let i = 0, j = 0;
+  while (i < payer.length && j < receiver.length) {
+    const amount = Math.min(payer[i].v, receiver[j].v);
+    nettoZahlungen.push({ from: payer[i].p, to: receiver[j].p, amount });
+    payer[i].v -= amount;
+    receiver[j].v -= amount;
+    if (payer[i].v <= 0.00001) i++;
+    if (receiver[j].v <= 0.00001) j++;
+  }
+
+  // Ausgabe
+  let html = "";
+
+  html += "<h3>Ausgleichszahlungen (Detail)</h3>";
+  html += "<div class='box'>";
+  const keys = Object.keys(detail);
+  if (!keys.length) {
+    html += "<div class='amount'>Keine Zahlungen erforderlich.</div>";
+  } else {
+    keys.forEach(key => {
+      html += "<div class='amount'>" + key + ": <span class='pill'>" + detail[key].toFixed(2) + " €</span></div>";
+    });
+  }
+  html += "</div>";
+
+  html += "<h3>Saldo (Netto)</h3>";
+  html += "<div class='box'>";
+  if (!nettoZahlungen.length) {
+    html += "<div class='amount'>Kein Netto-Ausgleich erforderlich.</div>";
+  } else {
+    nettoZahlungen.forEach(z => {
+      html += "<div class='amount'>" + z.from + " → " + z.to + ": <span class='pill'>" + z.amount.toFixed(2) + " €</span></div>";
+    });
+  }
+  html += "</div>";
+
+  html += "<h3>Nutzungsdauer jährlich (in Monaten)</h3>";
+  html += "<table><tr><th></th><th>Weißer Bus</th><th>Mercedes</th><th>Wohnmobil</th></tr>";
+  personen.forEach(person => {
+    html += "<tr><td>" + person + "</td>";
+    ["Weißer Bus", "Mercedes", "Wohnmobil"].forEach(auto => {
+      html += "<td>" + (finalUsers[auto].includes(person) ? monate(finalUsers[auto]).toFixed(1) : "0") + "</td>";
+    });
+    html += "</tr>";
+  });
+  html += "</table>";
+
+  html += "<h3>Rechenweg</h3>";
+  html += "<div class='box'>";
+  erklaerung.forEach(e => html += "<div class='amount'>" + e + "</div>");
+  html += "</div>";
+
+  document.getElementById("ergebnis").innerHTML = html;
+}
+</script>
+
+</body>
+</html>
