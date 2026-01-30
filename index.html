@@ -10,10 +10,13 @@ table { border-collapse: collapse; }
 td, th { border: 1px solid #999; padding: 6px 10px; text-align: center; }
 input[type="number"] { width: 110px; }
 .result { border: 2px solid #333; padding: 12px; margin-top: 16px; background-color: #f7f7f7; }
-.amount { margin-top: 6px; }
+.amount { margin-top: 10px; }
 .bigbtn { font-size: 18px; padding: 14px 20px; cursor: pointer; }
 .box { border: 2px solid #333; padding: 10px; margin-top: 10px; background: #fff; }
-.pill { display:inline-block; padding: 4px 8px; border: 2px solid #333; background:#fff; }
+.pill { display:inline-block; padding: 4px 8px; border: 2px solid #333; background:#fff; border-radius: 10px; }
+.small { font-size: 13px; line-height: 1.35; }
+.reason { margin-top: 6px; margin-left: 14px; }
+.hr { border-top: 1px solid #ddd; margin: 10px 0; }
 </style>
 </head>
 <body>
@@ -33,7 +36,7 @@ Wohnmobil: <input type="number" id="wohnmobil" value="12000"> €
 </div>
 
 <h2>Feste Annahmen</h2>
-<div class="section">
+<div class="section small">
 - Robin behält immer mindestens den Mercedes<br>
 - Linda behält immer mindestens den weißen Bus<br>
 - Max behält immer mindestens das Wohnmobil<br>
@@ -52,21 +55,21 @@ Wohnmobil: <input type="number" id="wohnmobil" value="12000"> €
 </tr>
 <tr>
 <td>Linda</td>
-<td><input type="checkbox" id="l_bus" checked disabled></td>
+<td><input type="checkbox" checked disabled></td>
 <td><input type="checkbox" id="l_mercedes"></td>
 <td><input type="checkbox" id="l_wohnmobil"></td>
 </tr>
 <tr>
 <td>Robin</td>
-<td><input type="checkbox" id="r_bus" disabled></td>
-<td><input type="checkbox" id="r_mercedes" checked disabled></td>
+<td><input type="checkbox" disabled></td>
+<td><input type="checkbox" checked disabled></td>
 <td><input type="checkbox" id="r_wohnmobil"></td>
 </tr>
 <tr>
 <td>Max</td>
-<td><input type="checkbox" id="m_bus" disabled></td>
+<td><input type="checkbox" disabled></td>
 <td><input type="checkbox" id="m_mercedes"></td>
-<td><input type="checkbox" id="m_wohnmobil" checked disabled></td>
+<td><input type="checkbox" checked disabled></td>
 </tr>
 </table>
 </div>
@@ -84,14 +87,11 @@ function berechnen() {
   };
 
   const personen = ["Linda", "Robin", "Max"];
-
-  // Checkbox-Helper
   function checked(id) { return document.getElementById(id).checked; }
 
-  // Endzustand-Nutzer je Fahrzeug aus den Haken
-  // Bus: nur Linda (Robin/Max nie Bus) -> fest
+  // Endnutzer je Fahrzeug aus den Haken + feste Annahmen
   const finalUsers = {
-    "Weißer Bus": ["Linda"],
+    "Weißer Bus": ["Linda"], // fest: Robin/Max nie Bus
     "Mercedes": ["Robin"].concat(checked("l_mercedes") ? ["Linda"] : []).concat(checked("m_mercedes") ? ["Max"] : []),
     "Wohnmobil": ["Max"].concat(checked("l_wohnmobil") ? ["Linda"] : []).concat(checked("r_wohnmobil") ? ["Robin"] : [])
   };
@@ -103,65 +103,81 @@ function berechnen() {
     "Wohnmobil": ["Linda", "Robin", "Max"]
   };
 
-  // Detailzahlungen
-  const detail = {};
-  function addPay(from, to, amount) {
+  // Detailzahlungen + Gründe sammeln
+  const detailTotals = {};      // "A → B" => Betrag
+  const detailReasons = {};     // "A → B" => [{vehicle, text, amount}, ...]
+  function addPay(from, to, amount, vehicle, reasonText) {
     const a = Number(amount || 0);
     if (a <= 0) return;
+
     const key = from + " → " + to;
-    detail[key] = (detail[key] || 0) + a;
+    detailTotals[key] = (detailTotals[key] || 0) + a;
+
+    if (!detailReasons[key]) detailReasons[key] = [];
+    detailReasons[key].push({
+      vehicle,
+      text: reasonText,
+      amount: a
+    });
   }
 
-  const erklaerung = [];
+  // Rechenweg pro Fahrzeug
+  const rechenweg = [];
 
-  // Einheitliche Ausgleichslogik pro Fahrzeug:
-  // Aussteiger (base - final) werden von verbleibenden Nutzern (final) ausgekauft.
-  // Jeder Aussteiger hat Anspruch auf Wert/3.
-  // Dieser Betrag wird gleichmäßig auf die verbleibenden Nutzer verteilt.
+  // Einheitliche Ausgleichslogik:
+  // - Jeder Aussteiger gibt seinen 1/3-Anteil ab (Wert/3)
+  // - Verbleibende Nutzer kaufen aus, gleichmäßig aufgeteilt
   function handleVehicle(name) {
     const v = values[name];
     const owners = baseOwners[name];
-    const stay = finalUsers[name]; // verbleibende Nutzer
+    const stay = finalUsers[name];
     const leave = owners.filter(p => !stay.includes(p));
 
-    // Sicherheitscheck: mindestens 1 bleibt (bei deinen Annahmen immer true)
     if (stay.length === 0) return;
 
-    const share = v / 3; // Wert eines 1/3-Anteils
-    const perStayerPerLeaver = share / stay.length;
+    const share = v / 3; // 1/3 Anteil
+    const perStayerPerLeaver = (leave.length > 0) ? (share / stay.length) : 0;
+
+    // Rechenweg-Block
+    const block = [];
+    block.push(name + ":");
+    block.push("Wert: " + v.toFixed(2) + " €");
+    block.push("1/3-Anteil: " + share.toFixed(2) + " €");
+    block.push("Verbleibende Nutzer: " + stay.join(", "));
+    block.push("Aussteiger: " + (leave.length ? leave.join(", ") : "niemand"));
 
     if (leave.length === 0) {
-      erklaerung.push(name + ": niemand steigt aus, daher kein Ausgleich.");
+      block.push("Ergebnis: Kein Ausgleich, da niemand aussteigt.");
+      rechenweg.push(block);
       return;
     }
 
-    // Zahlungen: jeder verbleibende Nutzer zahlt an jeden Aussteiger perStayerPerLeaver
+    block.push("Ausgleichslogik: Jeder Aussteiger erhält seinen 1/3-Anteil. Dieser Betrag wird gleichmäßig auf die verbleibenden Nutzer verteilt.");
+    block.push("Zahlung je verbleibendem Nutzer an jeden Aussteiger: (" + share.toFixed(2) + " € / " + stay.length + ") = " + perStayerPerLeaver.toFixed(2) + " €");
+
+    // Zahlungen erzeugen, inkl. Begründungstext je Zahlung
     leave.forEach(leaver => {
       stay.forEach(stayer => {
-        addPay(stayer, leaver, perStayerPerLeaver);
+        const reason = name + ": " + stayer + " übernimmt Anteil von " + leaver + " (1/3 wird auf " + stay.length + " Nutzer verteilt)";
+        addPay(stayer, leaver, perStayerPerLeaver, name, reason);
       });
     });
 
-    erklaerung.push(
-      name + ": Aussteiger: " + leave.join(", ") +
-      ". Verbleibend: " + stay.join(", ") +
-      ". Anteil je Aussteiger: " + share.toFixed(2) + " €. Aufgeteilt auf " + stay.length +
-      " verbleibende Nutzer = " + perStayerPerLeaver.toFixed(2) + " € je Zahlung."
-    );
+    rechenweg.push(block);
   }
 
   handleVehicle("Weißer Bus");
   handleVehicle("Mercedes");
   handleVehicle("Wohnmobil");
 
-  // Nutzungsdauer (12 Monate gleichmäßig auf Endnutzer verteilt)
+  // Nutzungsdauer: 12 Monate gleichmäßig auf Endnutzer verteilt
   function monate(nutzer) { return nutzer.length ? (12 / nutzer.length) : 0; }
 
   // Saldo berechnen (+ bekommt, - zahlt)
   const saldo = { "Linda": 0, "Robin": 0, "Max": 0 };
-  for (const k in detail) {
+  for (const k in detailTotals) {
     const [from, to] = k.split(" → ");
-    const amt = detail[k];
+    const amt = detailTotals[k];
     saldo[from] -= amt;
     saldo[to] += amt;
   }
@@ -191,12 +207,25 @@ function berechnen() {
 
   html += "<h3>Ausgleichszahlungen (Detail)</h3>";
   html += "<div class='box'>";
-  const keys = Object.keys(detail);
+
+  const keys = Object.keys(detailTotals);
   if (!keys.length) {
     html += "<div class='amount'>Keine Zahlungen erforderlich.</div>";
   } else {
     keys.forEach(key => {
-      html += "<div class='amount'>" + key + ": <span class='pill'>" + detail[key].toFixed(2) + " €</span></div>";
+      html += "<div class='amount'>";
+      html += key + ": <span class='pill'>" + detailTotals[key].toFixed(2) + " €</span>";
+
+      // Gründe je Zahlung
+      const reasons = detailReasons[key] || [];
+      if (reasons.length) {
+        html += "<div class='reason small'>";
+        reasons.forEach(r => {
+          html += "- " + r.vehicle + ": " + r.amount.toFixed(2) + " € (" + r.text + ")<br>";
+        });
+        html += "</div>";
+      }
+      html += "</div><div class='hr'></div>";
     });
   }
   html += "</div>";
@@ -217,15 +246,22 @@ function berechnen() {
   personen.forEach(person => {
     html += "<tr><td>" + person + "</td>";
     ["Weißer Bus", "Mercedes", "Wohnmobil"].forEach(auto => {
-      html += "<td>" + (finalUsers[auto].includes(person) ? monate(finalUsers[auto]).toFixed(1) : "0") + "</td>";
+      const v = finalUsers[auto].includes(person) ? monate(finalUsers[auto]).toFixed(1) : "0";
+      html += "<td>" + v + "</td>";
     });
     html += "</tr>";
   });
   html += "</table>";
 
-  html += "<h3>Rechenweg</h3>";
-  html += "<div class='box'>";
-  erklaerung.forEach(e => html += "<div class='amount'>" + e + "</div>");
+  html += "<h3>Rechenweg (gut verständlich)</h3>";
+  html += "<div class='box small'>";
+  html += "Grundidee: Am Anfang hat jede Person an jedem Auto einen Anteil von 1/3. Wenn jemand aus der Nutzung aussteigt, gibt diese Person ihren 1/3-Anteil ab. Die Personen, die das Auto weiterhin nutzen, kaufen diesen Anteil aus. Der Ausgleich pro Aussteiger beträgt immer: Fahrzeugwert / 3. Dieser Betrag wird gleichmäßig auf die verbleibenden Nutzer verteilt.<br><br>";
+
+  rechenweg.forEach(block => {
+    html += "<div class='hr'></div>";
+    block.forEach(line => html += line + "<br>");
+  });
+
   html += "</div>";
 
   document.getElementById("ergebnis").innerHTML = html;
